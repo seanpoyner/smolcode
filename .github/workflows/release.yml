@@ -1,0 +1,272 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:        # manual build test (no PyPI/crates publish, no GitHub release)
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  PY_MANIFEST: crates/smolcode-py/Cargo.toml
+
+jobs:
+  # Build CLI binaries for all platforms
+  build-cli:
+    name: Build CLI (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install NASM (Windows, for aws-lc-rs)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
+      - name: Build CLI
+        run: cargo build --release --package smolcode --target ${{ matrix.target }}
+
+      - name: Create archive (Unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czvf "$GITHUB_WORKSPACE/smolcode-${{ matrix.target }}.tar.gz" smolcode
+
+      - name: Create archive (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path target/${{ matrix.target }}/release/smolcode.exe -DestinationPath smolcode-${{ matrix.target }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smolcode-${{ matrix.target }}
+          path: smolcode-${{ matrix.target }}.${{ matrix.archive }}
+
+  # Build Python wheels — Linux (manylinux2014 → installs on Colab/glibc 2.17+).
+  build-wheels-linux:
+    name: Build Python wheels (manylinux2014)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels (cp310/311/312)
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -m ${{ env.PY_MANIFEST }} --out dist -i 3.10 3.11 3.12
+          manylinux: '2014'
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux
+          path: dist/*.whl
+
+  # Build Python wheels — macOS (native arm64).
+  build-wheels-macos:
+    name: Build Python wheels (macOS arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: |
+            3.10
+            3.11
+            3.12
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -m ${{ env.PY_MANIFEST }} --out dist -i 3.10 3.11 3.12
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos
+          path: dist/*.whl
+
+  # Build Python wheels — Windows.
+  build-wheels-windows:
+    name: Build Python wheels (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: |
+            3.10
+            3.11
+            3.12
+
+      - name: Install NASM (for aws-lc-rs)
+        uses: ilammy/setup-nasm@v1
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release -m ${{ env.PY_MANIFEST }} --out dist -i 3.10 3.11 3.12
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows
+          path: dist/*.whl
+
+  # Build Python source distribution
+  build-python-sdist:
+    name: Build Python sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: -m ${{ env.PY_MANIFEST }} --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist/*.tar.gz
+
+  # Publish to PyPI via OIDC Trusted Publishing (no API token).
+  # Trusted publisher: repo seanpoyner/smolcode, workflow release.yml, PyPI
+  # project smolcode-core. Configure a *pending* publisher before the first run.
+  publish-pypi:
+    name: Publish to PyPI (Trusted Publishing)
+    needs: [build-wheels-linux, build-wheels-macos, build-wheels-windows, build-python-sdist]
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}   # tags only, skip pre-releases
+    permissions:
+      id-token: write
+    steps:
+      - name: Download Linux wheels
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels-linux
+          path: dist
+
+      - name: Download macOS wheels
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels-macos
+          path: dist
+
+      - name: Download Windows wheels
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels-windows
+          path: dist
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+      - name: List artifacts
+        run: ls -la dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          skip-existing: true
+
+  # Publish the smolcode crate to crates.io via OIDC Trusted Publishing (no token).
+  # crates/smolcode-py is `publish = false`; only the `smolcode` lib+bin publishes.
+  # One-time setup: publish smolcode once manually, then add a Trusted Publisher
+  # (repo seanpoyner/smolcode, workflow release.yml) in the crate settings.
+  # Skips gracefully if the tagged version is already on crates.io.
+  publish-crates:
+    name: Publish to crates.io (Trusted Publishing)
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Authenticate to crates.io (OIDC)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: Publish smolcode (skip if version already exists)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import sys,json;print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='smolcode'))")
+          if curl -sf "https://crates.io/api/v1/crates/smolcode/${VERSION}" >/dev/null 2>&1; then
+            echo "smolcode ${VERSION} already on crates.io — skipping."
+          else
+            cargo publish -p smolcode
+          fi
+
+  # Create GitHub Release with CLI binaries + wheels + sdist
+  release:
+    name: Create Release
+    needs: [build-cli, build-wheels-linux, build-wheels-macos, build-wheels-windows, build-python-sdist]
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -name "smolcode-*.tar.gz" -exec cp {} release-assets/ \;
+          find artifacts -name "smolcode-*.zip" -exec cp {} release-assets/ \;
+          find artifacts -name "*.whl" -exec cp {} release-assets/ \;
+          find artifacts -name "smolcode_core-*.tar.gz" -exec cp {} release-assets/ \;
+          ( cd release-assets && sha256sum * > SHA256SUMS )
+          ls -la release-assets/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
