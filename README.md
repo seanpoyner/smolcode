@@ -8,6 +8,47 @@ smolcode is an opencode-class coding agent for your terminal: a full ratatui TUI
 
 ## Install
 
+### Prebuilt binary (no toolchain needed)
+
+Grab the binary for your platform from the [latest release](https://github.com/seanpoyner/smolcode/releases/latest):
+
+| Platform | Asset |
+|----------|-------|
+| Linux x86_64 (glibc) | `smolcode-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux x86_64 (static, any distro/Alpine) | `smolcode-x86_64-unknown-linux-musl.tar.gz` |
+| Linux ARM64 (glibc) | `smolcode-aarch64-unknown-linux-gnu.tar.gz` |
+| Linux ARM64 (static, Raspberry Pi/Alpine) | `smolcode-aarch64-unknown-linux-musl.tar.gz` |
+| macOS Apple Silicon | `smolcode-aarch64-apple-darwin.tar.gz` |
+| macOS Intel | `smolcode-x86_64-apple-darwin.tar.gz` |
+| Windows x86_64 | `smolcode-x86_64-pc-windows-msvc.zip` |
+
+```bash
+# Example: Linux x86_64 (static build runs anywhere)
+curl -fsSL https://github.com/seanpoyner/smolcode/releases/latest/download/smolcode-x86_64-unknown-linux-musl.tar.gz | tar -xz
+install -m755 smolcode ~/.local/bin/
+```
+
+Checksums for every asset are in `SHA256SUMS` on the release.
+
+> The `musl` builds are fully static and ship without the learned ONNX router
+> (regex routing instead) — small, dependency-free, and portable to any Linux.
+
+### From crates.io
+
+```bash
+cargo install smolcode
+```
+
+### Python bindings
+
+Embed the agent engine in Python (`Session` / `Config`):
+
+```bash
+pip install smolcode-core
+```
+
+### From source
+
 ```bash
 git clone https://github.com/seanpoyner/smolcode.git
 cd smolcode
@@ -16,7 +57,7 @@ cd smolcode
 
 `install.sh` builds the release binary and symlinks `target/release/smolcode` into `~/.local/bin`.
 
-**Requirements:** Rust 1.75+, a running OpenAI-compatible LLM server.
+**Requirements (source/crates.io builds):** Rust 1.75+, a running OpenAI-compatible LLM server.
 
 ```bash
 # Example: Ollama with a tool-capable model
