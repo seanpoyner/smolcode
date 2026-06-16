@@ -52,10 +52,19 @@ fn on_path(prog: &str) -> bool {
 }
 
 fn is_executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    match std::fs::metadata(p) {
-        Ok(m) => m.is_file() && (m.permissions().mode() & 0o111 != 0),
-        Err(_) => false,
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match std::fs::metadata(p) {
+            Ok(m) => m.is_file() && (m.permissions().mode() & 0o111 != 0),
+            Err(_) => false,
+        }
+    }
+    // Windows has no executable permission bit; treat any regular file found on
+    // PATH (already resolved with the right extension) as runnable.
+    #[cfg(not(unix))]
+    {
+        p.is_file()
     }
 }
 

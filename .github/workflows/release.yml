@@ -82,11 +82,12 @@ jobs:
         with:
           command: build
           args: --release -m ${{ env.PY_MANIFEST }} --out dist -i 3.10 3.11 3.12
-          manylinux: '2014'
-          # ONNX Runtime's build script (ort-sys) downloads prebuilt binaries via
-          # ureq+native-tls, which needs system OpenSSL at *build* time. Not in the
-          # final wheel — only the container's build toolchain.
-          before-script-linux: yum install -y openssl-devel
+          # manylinux_2_28 (AlmaLinux 8) ships OpenSSL 1.1.1 — manylinux2014's
+          # 1.0.2 is too old for openssl-sys. ort-sys's build script downloads
+          # ONNX Runtime via ureq+native-tls, which needs system OpenSSL at
+          # *build* time (not linked into the wheel). Requires glibc 2.28+.
+          manylinux: '2_28'
+          before-script-linux: dnf install -y openssl-devel
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -205,7 +206,9 @@ jobs:
         run: |
           VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          if curl -sf "https://crates.io/api/v1/crates/smolcode/${VERSION}" >/dev/null 2>&1; then
+          # crates.io requires a descriptive User-Agent or it returns 403.
+          if curl -sf -H "User-Agent: smolcode-release (github.com/seanpoyner/smolcode)" \
+               "https://crates.io/api/v1/crates/smolcode/${VERSION}" >/dev/null 2>&1; then
             echo "smolcode ${VERSION} already on crates.io — nothing to do."
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
