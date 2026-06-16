@@ -70,6 +70,41 @@ jobs:
           name: smolcode-${{ matrix.target }}
           path: smolcode-${{ matrix.target }}.${{ matrix.archive }}
 
+  # Cross-compiled, fully static / ARM Linux CLI binaries via `cross`. Built with
+  # --no-default-features (no ort/ONNX) so they're small and dependency-free:
+  # the musl builds run on any Linux (Alpine, musl, old glibc), the aarch64
+  # builds cover ARM servers and Raspberry Pi. Routing falls back to regex.
+  build-cli-cross:
+    name: Build CLI (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-gnu
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build CLI (cross)
+        uses: houseabsolute/actions-rust-cross@v1
+        with:
+          command: build
+          target: ${{ matrix.target }}
+          args: "--release --package smolcode --no-default-features"
+
+      - name: Create archive
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czvf "$GITHUB_WORKSPACE/smolcode-${{ matrix.target }}.tar.gz" smolcode
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smolcode-${{ matrix.target }}
+          path: smolcode-${{ matrix.target }}.tar.gz
+
   # Build Python wheels — Linux (manylinux2014 → installs on Colab/glibc 2.17+).
   build-wheels-linux:
     name: Build Python wheels (manylinux2014)
@@ -229,7 +264,7 @@ jobs:
   # Create GitHub Release with CLI binaries + wheels + sdist
   release:
     name: Create Release
-    needs: [build-cli, build-wheels-linux, build-wheels-macos, build-python-sdist]
+    needs: [build-cli, build-cli-cross, build-wheels-linux, build-wheels-macos, build-python-sdist]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
