@@ -1,0 +1,19 @@
+[package]
+name = "smolcode-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings for the smolcode agent engine"
+license = "MIT"
+publish = false
+
+[lib]
+name = "smolcode_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+smolcode = { path = "../.." }
+pyo3 = { version = "0.21", features = ["extension-module"] }
+pyo3-asyncio-0-21 = { version = "0.21", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+serde_json = "1"
+anyhow = "1"

@@ -2,3 +2,7 @@ target/
 router_clf/onnx/
 *.swp
 .DS_Store
+
+# Python build artifacts
+dist/
+*.whl

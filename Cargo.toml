@@ -12,7 +12,7 @@ readme = "README.md"
 rust-version = "1.75"
 
 [workspace]
-members = ["."]
+members = [".", "crates/smolcode-py"]
 resolver = "2"
 
 [lib]
@@ -31,7 +31,9 @@ default = ["route-clf"]
 route-clf = ["dep:ort", "dep:tokenizers", "dep:once_cell"]
 
 [dependencies]
-liteforge = { git = "https://github.com/seanpoyner/liteforge.git", package = "liteforge" }
+# Published liteforge from crates.io (required for `cargo publish` — registry
+# crates may not depend on git sources). Bump in lockstep with liteforge releases.
+liteforge = "0.2.5"
 ort = { version = "=2.0.0-rc.10", optional = true }
 tokenizers = { version = "0.20", optional = true }
 once_cell = { version = "1", optional = true }
